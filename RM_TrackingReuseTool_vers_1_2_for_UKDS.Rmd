@@ -1,0 +1,883 @@
+---
+title: "Tracking Reuse Tool"
+author: "Filippo Accordino"
+date: "2025-03-20"
+output:
+  html_document: default
+  pdf_document: default
+editor_options: 
+  chunk_output_type: console
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+# Reuse of data of CESSDA Service Providers (archives)
+
+collection in english language only
+
+vers. 1.2 optimized for UK Data Service 19 march 2025
+
+Related publication: Accordino, F., Luzi, D. and Pecoraro, F. (2025),
+"Challenges in tracking archive’s data reuse in social sciences",
+Digital Library Perspectives, Vol. ahead-of-print No. ahead-of-print.
+<https://doi.org/10.1108/DLP-07-2024-0112>
+
+Author of the script: Filippo Accordino Institute for Research on
+Population and Social Policies - National Research Council, Rome - Italy
+DASSI - Data Archive for Social Sciences in Italy
+[f.accordino\@irpps.cnr.it](mailto:f.accordino@irpps.cnr.it){.email}
+<https://orcid.org/0000-0002-4245-0654>
+
+Licence: CC BY-NC-SA 4.0
+
+IMPORTANT NOTES
+
+For details on CESSDA metadata, see CMM CESSDA Metadata Model -Version
+1.0 (15 November 2019)- <doi:10.5281/zenodo.3543756>
+
+For details on Scopus metadata, see Article Metadata Views,
+<https://dev.elsevier.com/sd_article_meta_views.html>
+
+This tool need a Scopus API key, see
+<https://dev.elsevier.com/apikey/manage>
+
+```{r}
+# insert your Scopus APIkey, see https://dev.elsevier.com/apikey/manage
+apiKey <- ""
+```
+
+## To start
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(httr)
+library(tibble)
+library(dplyr)
+library(tidyverse)
+library(jsonlite)
+library(rscopus)
+library(tidyquery)
+```
+
+Creating a folder for the output
+
+```{r}
+if (!dir.exists("results")) {
+  dir.create("results")
+}
+```
+
+## Output: files with results
+
+| Name | Description |
+|------------------------------------|------------------------------------|
+| results/Scopus_CDC_sub.csv | Overview of all citations with Scopus and SP metadata |
+| results/group_by_cited_DOI_distribution.csv | References frequency for cited studies |
+| results/group_by_study_topics.csv | Grouping by data topic. Each cited study can have more than one assigned topic |
+| results/group_by_citing_publications.csv | Publications citing SP data |
+| results/group_by_citing_publications_number.csv | Frequency of references to datasets in publications |
+| results/group_by_citing_publications_byYear.csv | Grouping citing publications by year |
+| results/group_by_time_span.csv | Time span study/paper publication |
+| results/group_by_citing_publications_subject_groupBy.csv | Citing publications by subject, using ASJC classification |
+| results/data_creators_unnest_creators_type.csv | Cited studies by creators' type (university, organization) |
+
+## Extraction of DOIs of the selected Service Provider
+
+```{r}
+SP01 <- "Austrian%20Social%20Science%20Data%20Archive%20%28AUSSDA%29"
+SP02 <- "Czech%20Social%20Science%20Data%20Archive%20%28%C4%8CSDA%29"
+SP03 <- "DASSI%20-%20Data%20Archive%20for%20Social%20Sciences%20in%20Italy"
+SP04 <- "Danish%20National%20Archives%20%28DNA%29"
+SP05 <- "FORS%20-%20Swiss%20Centre%20of%20Expertise%20in%20the%20Social%20Sciences"
+SP06 <- "Finnish%20Social%20Science%20Data%20Archive%20%28FSD%29"
+SP07 <- "GESIS%20-%20Leibniz%20Institute%20for%20the%20Social%20Sciences"
+SP08 <- "HumMingBird"
+SP09 <- "PROGEDO"
+SP10 <- "PROGEDO%3A%20Center%20for%20Socio-Political%20Data%20%28CDSP%29"
+SP11 <- "Portuguese%20Archive%20of%20Social%20Information%20%28APIS%29"
+SP12 <- "Sikt%20-%20Norwegian%20Agency%20for%20Shared%20Services%20in%20Education%20and%20Research"
+SP13 <- "Slovak%20Archive%20of%20Social%20Data%20%28SASD%29"
+SP14 <- "Slovenian%20Social%20Science%20Data%20Archives%20%28ADP%29"
+SP15 <- "SoDaNet%20-%20Greek%20Research%20Infrastructure%20for%20Social%20Science"
+SP16 <- "Social%20Sciences%20and%20Digital%20Humanities%20Archive%20%28SODHA%29"
+SP17 <- "Swedish%20National%20Data%20Service%20%28SND%29"
+SP18 <- "UK%20Data%20Service"
+
+SP <- SP18 # choose your Service Provider from the list below
+```
+
+List of Service Providers
+
+-   SP01=AUSSDA
+
+-   SP02=CSDA
+
+-   SP03=DASSI
+
+-   SP04=DNA
+
+-   SP05=FORS
+
+-   SP06=FSD
+
+-   SP07=GESIS
+
+-   SP08=HumMingBird
+
+-   SP09=PROGEDO
+
+-   SP10=PROGEDO CDSP
+
+-   SP11=APIS
+
+-   SP12=Sikt
+
+-   SP13=SASD
+
+-   SP14=ADP
+
+-   SP15=SoDaNet
+
+-   SP16=SODHA
+
+-   SP17=SND
+
+-   SP18=UK Data Service
+
+## Extraction of Studies' DOI
+
+Using: CESSDA data catalogue search API, available at:
+<https://api.tech.cessda.eu/>
+
+```{r}
+all_variable <- c()
+
+SPdata_en <- data.frame(matrix(nrow = 0, ncol = 0))
+"colnames(SPdata_en) = colonne"
+
+start_value <- 0
+end_value <- 9400
+
+for (i in 1:10) {
+  for (i in seq(start_value, end_value, by = 200)) {
+    string <- paste("https://datacatalogue.cessda.eu/api/DataSets/v2/search?publishers=", SP, "&limit=200&offset=", i, "&metadataLanguage=en")
+    res1 <- GET(gsub(" ", "", string))
+    CDC1 <- fromJSON(rawToChar(res1$content))
+    if (as.matrix(CDC1$ResultsCount$retrieved) > 0) {
+      CDC1_as_tibble <- as_tibble(CDC1$Results)
+      SPdata_en <- bind_rows(SPdata_en, CDC1_as_tibble)
+      "SPdata_en[nrow(SPdata_en) + 1,] <- CDC1_as_tibble
+      variable <- as.matrix(CDC1$Results$id)
+      all_variable <- append(all_variable, variable)"
+    }
+  }
+}
+
+SPdata_en_distinct <-
+  distinct(SPdata_en, id, .keep_all = TRUE) # to eliminate duplicates
+
+remove(SPdata_en) # removing of SPdata_en to save space
+
+SPdata_en <- SPdata_en_distinct # renaming
+rm(SPdata_en_distinct)
+```
+
+Creating a subset of CDC metadata to analyse
+
+```{r}
+SPdata_en_sel <-
+  SPdata_en[, c(
+    "pidStudies",
+    "classifications",
+    "titleStudy",
+    "creators",
+    "publicationYear",
+    "id"
+  )]
+```
+
+Retrieving PID/DOI of the studies collected in the SP
+
+-   pidStudies, CMM no. 1.1.10.4
+
+```{r}
+SPdata_en_sel_unnest <-
+  unnest_wider(SPdata_en_sel,
+    col = c("pidStudies"),
+    names_repair = "universal"
+  )
+
+SPdata_en_sel_unnest$agency <- NULL # eliminating column
+
+SPdata_en_sel_unnest <-
+  unnest_wider(SPdata_en_sel_unnest,
+    col = c("pid"),
+    names_sep = "[_]",
+    names_repair = "universal"
+  )
+
+SPdata_en_sel_unnest[1] <- NULL # eliminating column
+colnames(SPdata_en_sel_unnest)[1] <- "DOI" # renaming
+
+SPdata_DOI_list <-
+  as.list(na.omit(SPdata_en_sel_unnest$DOI)) # creating DOIs list (excluding studies without DOI, NA)
+  ```
+
+Remove objects to make space
+
+```{r}
+rm(
+  CDC1,
+  CDC1_as_tibble,
+  res1
+)
+```
+
+## Tracking the data reuse on Scopus Indexed Publications
+
+Using:
+
+1.  Muschelli, J. (2019), “Rscopus: Scopus database ‘API’ interface”, R
+    package (Version 0.6.6.) [Computer software], available at:
+    <https://CRAN.R-project.org/package=rscopus>
+
+2.  Elsevier scopus APIs”, available at:
+    <https://dev.elsevier.com/sc_apis.html>
+
+```{r}
+Scopus_df <- data.frame()
+
+for (i in SPdata_DOI_list) {
+  query <- gsub(" ", "", paste("REF(", i, ")"))
+
+  api_query <-
+    scopus_search(
+      query = query,
+      api_key = apiKey,
+      count = 199,
+      view = c("STANDARD"),
+      start = 0,
+      verbose = TRUE,
+      max_count = 8000,
+      http = "https://api.elsevier.com/content/search/scopus",
+      headers = NULL,
+      wait_time = 0
+    )
+
+  if (api_query$total_results > 0) {
+    entries_df <-
+      gen_entries_to_df(api_query$entries, scrub = FALSE)
+
+    entries_df <-
+      as.data.frame(entries_df$df)
+
+    entries_df$cited_DOI <- i
+
+    Scopus_df <- bind_rows(Scopus_df, entries_df)
+  }
+}
+```
+
+Creating a subset of Scopus metadata
+
+```{r}
+data.frame(colnames(Scopus_df))
+
+Scopus_df_sel <-
+  Scopus_df[, c(
+    "dc:identifier", # DOI
+    "dc:title", # Article Title
+    "prism:publicationName", # Source title
+    "prism:doi", # Document Object Identifier
+    "prism:coverDate", # Publication date (YYYY-MM-DD)
+    "cited_DOI" # cited study
+  )]
+```
+
+Convert Publication date (YYYY-MM-DD) in '%Y' format
+
+```{r}
+colnames(Scopus_df_sel)[5] <- "year"
+Scopus_df_sel$year <-
+  as.Date(Scopus_df_sel$year)
+Scopus_df_sel$year <-
+  as.numeric(format(Scopus_df_sel$year, "%Y"))
+```
+
+Merging SP and Scopus metadata
+
+```{r}
+Scopus_CDC <-
+  left_join(Scopus_df_sel, SPdata_en_sel_unnest,
+    by = c(cited_DOI = "DOI"),
+    copy = FALSE
+  ) # we obtain all citations.
+# each publication can cite multiple SP datasets.
+# see metadata below
+```
+
+| Field | Source | Description |
+|------------------------|------------------------|------------------------|
+| dc:identifier | Scopus | DOI |
+| dc:title | Scopus | Article Title |
+| prism:publicationName | Scopus | Source title |
+| prism:doi | Scopus | Document Object Identifie |
+| year | Scopus | Publication date (YYYY-MM-DD) (retrieved from prism:coverDate) |
+| cited_DOI | CESSDA | DOI of cited SP study |
+| classifications | CESSDA | Study Topic (controlled), CMM 1.2.2 |
+| titleStudy | CESSDA | Study Title, CMM 1.1.3 |
+| creators | CESSDA | Principal Investigator Reference, CMM 1.1.7 |
+| publicationYear | CESSDA | Publication Year (controlled [YYYY]), CMM no. 1.1.9 |
+| id | CESSDA | \>\> id of CESSDA Data Catalogue |
+
+```{r}
+Scopus_CDC_sub <-
+  Scopus_CDC[, c(1:6, 11, 8, 10)] # overview of all citations with Scopus and SP metadata
+
+write.csv2(Scopus_CDC_sub,
+  file = "results/Scopus_CDC_sub.csv"
+)
+```
+
+## Analysis of data
+
+1)  Grouping by cited studies' DOI Study PID, CMM no. 1.1.10.4
+
+```{r}
+group_by_cited_DOI <-
+  Scopus_CDC %>%
+  group_by(cited_DOI) %>%
+  tally(sort = TRUE, name = "Frequency_of_references")
+
+group_by_cited_DOI <-
+  group_by_cited_DOI %>%
+  left_join(select(SPdata_en_sel_unnest, DOI, titleStudy),
+    by = c(cited_DOI = "DOI")
+  )
+```
+
+```{r}
+group_by_cited_DOI_distribution <-
+  group_by_cited_DOI %>%
+  group_by(Frequency_of_references) %>%
+  tally(name = "Cited_datasets_no.") # Study citations distribution
+
+group_by_cited_DOI_distribution <-
+  group_by_cited_DOI %>%
+  group_by(group_by_cited_DOI$Frequency_of_references) %>%
+  tally(name = "Cited_datasets_no.") # Study citations distribution
+
+colnames(group_by_cited_DOI_distribution)[1] <- "Frequency of references"
+
+group_by_cited_DOI_distribution$Cited_datasets_ratio <-
+  round(
+    group_by_cited_DOI_distribution$Cited_datasets_no. /
+      sum(group_by_cited_DOI_distribution$Cited_datasets_no.) * 100,
+    digits = 2
+  )
+
+write.csv2(group_by_cited_DOI_distribution,
+  file = "results/group_by_cited_DOI_distribution.csv"
+) # References frequency for cited studies:
+```
+
+2)  Grouping by data topics
+    -   Study Topic (controlled), CMM 1.2.2
+
+```{r}
+group_by_cited_DOI_topic <-
+  left_join(group_by_cited_DOI,
+    SPdata_en_sel_unnest[, c("DOI", "classifications")],
+    by = c(cited_DOI = "DOI"),
+    copy = FALSE
+  )
+
+group_by_cited_DOI_topic <-
+  unnest(group_by_cited_DOI_topic,
+    col = c("classifications"),
+    names_sep = "[_]",
+    names_repair = "universal"
+  )
+
+colnames(group_by_cited_DOI_topic)[7] <- "classifications.term"
+
+group_by_cited_DOI_topic_SUM <-
+  group_by_cited_DOI_topic %>%
+  group_by(classifications.term) %>%
+  summarize(sum = sum(Frequency_of_references))
+
+# Grouping by CESSDA Controlled Vocabulary for CESSDA Topic Classification,
+# https://vocabularies.cessda.eu/vocabulary/TopicClassification
+# Version 4.2.2 - Date of publication  2022-02-02
+
+CESSDA_topic <- read.csv2("CESSDA_topic.csv")
+
+colnames(CESSDA_topic)[1] <- "Topic_1st_level"
+
+group_by_cited_DOI_topic_SUM <-
+  left_join(group_by_cited_DOI_topic_SUM, CESSDA_topic,
+    by = c(classifications.term = "sub1"),
+    copy = FALSE
+  )
+
+group_by_cited_DOI_topic_SUM_1st_level <-
+  group_by_cited_DOI_topic_SUM %>%
+  group_by(Topic_1st_level) %>%
+  summarize(sum = sum(sum))
+
+group_by_cited_DOI_topic_SUM_1st_level$ratio <-
+  group_by_cited_DOI_topic_SUM_1st_level$sum / sum(group_by_cited_DOI_topic_SUM_1st_level$sum) * 100
+
+group_by_cited_DOI_topic_SUM_1st_level$ratio <-
+  round(group_by_cited_DOI_topic_SUM_1st_level$ratio,
+    digits = 2
+  )
+
+write.csv(group_by_cited_DOI_topic_SUM_1st_level,
+  file = "results/group_by_study_topics.csv"
+) # grouping by data topic.
+# Each cited study can have more than one assigned topic
+```
+
+Grouping by CESSDA Controlled Vocabulary for CESSDA Topic Classification
+
+<https://vocabularies.cessda.eu/vocabulary/TopicClassification> Version
+4.2.2 - Date of publication 2022-02-02
+
+```{r}
+CESSDA_topic <- read.csv2("CESSDA_topic.csv")
+
+colnames(CESSDA_topic)[1] <- "Topic_1st_level"
+
+group_by_cited_DOI_topic_SUM <-
+  left_join(group_by_cited_DOI_topic_SUM, CESSDA_topic,
+    by = c(classifications.term = "sub1"),
+    copy = FALSE
+  )
+
+group_by_cited_DOI_topic_SUM_1st_level <-
+  group_by_cited_DOI_topic_SUM %>%
+  group_by(Topic_1st_level) %>%
+  summarize(sum = sum(sum))
+
+group_by_cited_DOI_topic_SUM_1st_level$ratio <-
+  group_by_cited_DOI_topic_SUM_1st_level$sum / sum(group_by_cited_DOI_topic_SUM_1st_level$sum) * 100
+
+group_by_cited_DOI_topic_SUM_1st_level$ratio <-
+  round(group_by_cited_DOI_topic_SUM_1st_level$ratio,
+    digits = 2
+  )
+
+write.csv(group_by_cited_DOI_topic_SUM_1st_level,
+  file = "results/group_by_study_topics.csv"
+) # grouping by data topic.
+# Each cited study can have more than one assigned topic
+```
+
+5.  Grouping by citing publications' DOI
+
+    Publications citing SP data and frequency of references to datasets
+
+-   Document Object Identifier, Article Metadata Views
+
+```{r}
+group_by_citing_publications <-
+  Scopus_df_sel %>%
+  group_by(`dc:identifier`) %>%
+  tally(name = "n of cited dataset") # sum #n of datasets cited for each publication
+
+write.csv2(group_by_citing_publications,
+  file = "results/group_by_citing_publications.csv"
+)
+
+group_by_citing_publications_number <-
+  group_by_citing_publications %>%
+  group_by(`n of cited dataset`) %>%
+  tally(name = "n of pubb citing") # sum # n of publications citing n. of datasets
+
+group_by_citing_publications_number$CPratio <-
+  round(
+    (group_by_citing_publications_number$"n of pubb citing" /
+      sum(group_by_citing_publications_number$"n of pubb citing") * 100),
+    digits = 2
+  )
+
+colnames(group_by_citing_publications_number)[1] <- "Frequency of references to data"
+colnames(group_by_citing_publications_number)[2] <- "Citing publications no."
+colnames(group_by_citing_publications_number)[3] <- "Citing publications %"
+
+write.csv2(group_by_citing_publications_number,
+  file = "results/group_by_citing_publications_number.csv"
+)
+```
+
+6)  Grouping citing publications by year
+    -   Publication date (YYYY-MM-DD), Article Metadata Views
+
+```{r}
+group_by_citing_publications_byYear <-
+  unique(Scopus_df_sel[, c(1, 5)]) %>%
+  group_by(`year`) %>%
+  tally(name = "n of publications by year") # sum #n of publications citing SP data for each year
+
+write.csv2(group_by_citing_publications_byYear,
+  file = "results/group_by_citing_publications_byYear.csv"
+)
+```
+
+5)  Calculating time span study/paper publication
+
+-   Publication Year (controlled [YYYY]), CMM no. 1.1.9
+-   Publication date (YYYY-MM-DD), Publication date (YYYY-MM-DD),
+    Article Metadata Views
+
+```{r}
+time_span <-
+  left_join(Scopus_df_sel[, c("dc:title", "prism:doi", "year", "cited_DOI")],
+    SPdata_en_sel_unnest[, c("DOI", "titleStudy", "publicationYear")],
+    by = c("cited_DOI" = "DOI"),
+    copy = FALSE
+  )
+
+time_span$publicationYear <-
+  as.Date(time_span$publicationYear, "%Y")
+time_span$publicationYear <-
+  as.numeric(format(time_span$publicationYear, "%Y"))
+
+time_span$time_span <-
+  time_span$year - time_span$publicationYear
+
+group_by_time_span <-
+  time_span %>%
+  group_by(`time_span`) %>%
+  tally(name = "n of publications") # n of publications for each time span (year)
+
+write.csv(group_by_time_span,
+  file = "results/group_by_time_span.csv"
+)
+```
+
+6)  Grouping citing publications by subject
+
+    Using ASJC classification. Each journal can refer to more than one
+    ASJC category. Version may 2023 see
+    <https://service.elsevier.com/app/answers/detail/a_id/15181/supporthub/scopus/>
+
+```{r}
+ASJC_code <- read.csv2(
+  file = "scopus_journal_may_2023/ASJC_code.csv"
+)
+colnames(ASJC_code)[1] <- "ASJC_code"
+colnames(ASJC_code)[2] <- "ASJC_category"
+colnames(ASJC_code)[3] <- "ASJC_subject_area"
+
+ASJC_Scopus <- read.csv2(
+  file = "scopus_journal_may_2023/ASJC_journals_scopus_listMay2023.csv"
+)
+colnames(ASJC_Scopus)[1] <- "Source_title"
+
+colnames(ASJC_Scopus)[2] <- "ASJC_1"
+colnames(ASJC_Scopus)[3] <- "ASJC_2"
+colnames(ASJC_Scopus)[4] <- "ASJC_3"
+colnames(ASJC_Scopus)[5] <- "ASJC_4"
+colnames(ASJC_Scopus)[6] <- "ASJC_5"
+colnames(ASJC_Scopus)[7] <- "ASJC_6"
+colnames(ASJC_Scopus)[8] <- "ASJC_7"
+colnames(ASJC_Scopus)[9] <- "ASJC_8"
+colnames(ASJC_Scopus)[10] <- "ASJC_9"
+colnames(ASJC_Scopus)[11] <- "ASJC_10"
+colnames(ASJC_Scopus)[12] <- "ASJC_11"
+colnames(ASJC_Scopus)[13] <- "ASJC_12"
+colnames(ASJC_Scopus)[14] <- "ASJC_13"
+
+data.frame(colnames(ASJC_Scopus))
+ASJC_Scopus_1_2 <- ASJC_Scopus[, c(1, 2)]
+ASJC_Scopus_1_3 <- ASJC_Scopus[, c(1, 3)]
+ASJC_Scopus_1_4 <- ASJC_Scopus[, c(1, 4)]
+ASJC_Scopus_1_5 <- ASJC_Scopus[, c(1, 5)]
+ASJC_Scopus_1_6 <- ASJC_Scopus[, c(1, 6)]
+ASJC_Scopus_1_7 <- ASJC_Scopus[, c(1, 7)]
+ASJC_Scopus_1_8 <- ASJC_Scopus[, c(1, 8)]
+ASJC_Scopus_1_9 <- ASJC_Scopus[, c(1, 9)]
+ASJC_Scopus_1_10 <- ASJC_Scopus[, c(1, 10)]
+ASJC_Scopus_1_11 <- ASJC_Scopus[, c(1, 11)]
+ASJC_Scopus_1_12 <- ASJC_Scopus[, c(1, 12)]
+ASJC_Scopus_1_13 <- ASJC_Scopus[, c(1, 13)]
+
+colnames(ASJC_Scopus_1_2)[2] <- "ASJC"
+colnames(ASJC_Scopus_1_3)[2] <- "ASJC"
+colnames(ASJC_Scopus_1_4)[2] <- "ASJC"
+colnames(ASJC_Scopus_1_5)[2] <- "ASJC"
+colnames(ASJC_Scopus_1_6)[2] <- "ASJC"
+colnames(ASJC_Scopus_1_7)[2] <- "ASJC"
+colnames(ASJC_Scopus_1_8)[2] <- "ASJC"
+colnames(ASJC_Scopus_1_9)[2] <- "ASJC"
+colnames(ASJC_Scopus_1_10)[2] <- "ASJC"
+colnames(ASJC_Scopus_1_11)[2] <- "ASJC"
+colnames(ASJC_Scopus_1_12)[2] <- "ASJC"
+colnames(ASJC_Scopus_1_13)[2] <- "ASJC"
+
+ASJC_Scopus_rbind <- rbind(
+  ASJC_Scopus_1_2,
+  ASJC_Scopus_1_3,
+  ASJC_Scopus_1_4,
+  ASJC_Scopus_1_5,
+  ASJC_Scopus_1_6,
+  ASJC_Scopus_1_7,
+  ASJC_Scopus_1_8,
+  ASJC_Scopus_1_9,
+  ASJC_Scopus_1_10,
+  ASJC_Scopus_1_11,
+  ASJC_Scopus_1_12,
+  ASJC_Scopus_1_13
+)
+
+colnames(ASJC_Scopus_rbind)[2] <- "ASJC_code"
+
+rm(
+  ASJC_Scopus_1_2,
+  ASJC_Scopus_1_3,
+  ASJC_Scopus_1_4,
+  ASJC_Scopus_1_5,
+  ASJC_Scopus_1_6,
+  ASJC_Scopus_1_7,
+  ASJC_Scopus_1_8,
+  ASJC_Scopus_1_9,
+  ASJC_Scopus_1_10,
+  ASJC_Scopus_1_11,
+  ASJC_Scopus_1_12,
+  ASJC_Scopus_1_13
+)
+
+ASJC_Scopus_rbind <-
+  merge(
+    x = ASJC_Scopus_rbind,
+    y = ASJC_code,
+    by = "ASJC_code"
+  )
+
+Scopus_df_sel_publication <-
+  as.data.frame(unique(Scopus_df_sel[, c(1, 3)]))
+
+colnames(Scopus_df_sel_publication)[2] <- "publicationName"
+
+citing_publications_subject <-
+  left_join(Scopus_df_sel_publication,
+    ASJC_Scopus_rbind,
+    by = c("publicationName" = "Source_title")
+  )
+
+group_by_citing_publications_subject_groupBy <-
+  citing_publications_subject %>%
+  group_by(ASJC_subject_area) %>%
+  tally(name = "n") # sum
+
+write.csv(group_by_citing_publications_subject_groupBy,
+  file = "results/group_by_citing_publications_subject_groupBy.csv"
+)
+```
+
+7)  Grouping cited studies by creators' type (university, organization)
+
+-   Principal Investigator Reference, CMM 1.1.7
+
+```{r}
+data.frame(colnames(group_by_cited_DOI))
+
+data_creators <-
+  group_by_cited_DOI %>%
+  left_join(select(SPdata_en_sel_unnest, DOI, creators),
+    by = c(cited_DOI = "DOI")
+  )
+
+data_creators_unnest <-
+  unnest(data_creators,
+    col = c("creators"),
+    names_sep = "[_]",
+    names_repair = "universal"
+  )
+
+colnames(data_creators_unnest)[4] <- "creators"
+
+# university#############
+data_creators_unnest_university <-
+  query("SELECT * FROM data_creators_unnest
+        WHERE LOWER(creators) LIKE '%univer%'
+        OR LOWER(creators) LIKE '%fakulteta%'
+        OR LOWER(creators) LIKE '%college%'
+        OR LOWER(creators) LIKE '%school%'
+        OR LOWER(creators) LIKE '%hochschule%'")
+
+# organization####
+data_creators_unnest_organization <-
+  query("SELECT * FROM data_creators_unnest
+                    WHERE LOWER(creators) NOT LIKE '%univer%'
+                    AND LOWER(creators) NOT LIKE '%fakulteta%'
+                    AND LOWER(creators) NOT LIKE '%college%'
+                    AND LOWER(creators) NOT LIKE '%school%'
+                    AND LOWER(creators) NOT LIKE '%hochschule%'
+
+                    AND (
+                    LOWER(creators) LIKE '%institu%'
+                    OR LOWER(creators) LIKE '%research%'
+                    OR LOWER(creators) LIKE '%forschun%'
+                    OR LOWER(creators) LIKE '%agency%'
+                    OR LOWER(creators) LIKE '%analys%'
+                    OR LOWER(creators) LIKE '%europe%'
+                    OR LOWER(creators) LIKE '%statisti%'
+                    OR LOWER(creators) LIKE '%commission%'
+                    OR LOWER(creators) LIKE '%education%'
+                    OR LOWER(creators) LIKE '%ation%'
+                    OR LOWER(creators) LIKE '%service%'
+                    OR LOWER(creators) LIKE '%department%'
+                    OR LOWER(creators) LIKE '%board%'
+                    OR LOWER(creators) LIKE '%association%'
+                    OR LOWER(creators) LIKE '%office%'
+                    OR LOWER(creators) LIKE '%network%'
+                    OR LOWER(creators) LIKE '%centr%'
+                    OR LOWER(creators) LIKE '%center%'
+                    OR LOWER(creators) LIKE '%bureau%'
+                    OR LOWER(creators) LIKE '%archiv%'
+                    OR LOWER(creators) LIKE '%istat%'
+                    OR LOWER(creators) LIKE '%building%'
+                    OR LOWER(creators) LIKE '%economic%'
+                    OR LOWER(creators) LIKE '%histor%'
+                    OR LOWER(creators) LIKE '%council%'
+
+                    OR LOWER(creators) LIKE '%trust%'
+                    OR LOWER(creators) LIKE '%ipsos%'
+                    OR LOWER(creators) LIKE '%gfk%'
+                    OR LOWER(creators) LIKE '%garr%'
+                    OR LOWER(creators) LIKE '%cern%'
+                    OR LOWER(creators) LIKE '%luiss%'
+                    OR LOWER(creators) LIKE '%eurostat%'
+                    OR LOWER(creators) LIKE '%oxfam%'
+                    OR LOWER(creators) LIKE '%tns gallup%'
+                    OR LOWER(creators) LIKE '%ministry%'
+                    OR LOWER(creators) LIKE '%library%'
+                    OR LOWER(creators) LIKE '%plattform%'
+                    OR LOWER(creators) LIKE '%laboratorio%'
+                    OR LOWER(creators) LIKE '%census%'
+                    OR LOWER(creators) LIKE '%kommission%'
+                    OR LOWER(creators) LIKE '%europ%'
+                    OR LOWER(creators) LIKE '%eurisko%'
+                    OR LOWER(creators) LIKE '%UKDS%'
+                    OR LOWER(creators) LIKE '%wissen%'
+                    OR LOWER(creators) LIKE '%govern%'
+                    OR LOWER(creators) LIKE '%hospital%'
+                    OR LOWER(creators) LIKE '%social%'
+                    OR LOWER(creators) LIKE '%observa%'
+                    OR LOWER(creators) LIKE '%election%'
+                    OR LOWER(creators) LIKE '%politi%'
+
+                    OR creators LIKE '%MORI%'
+                    OR LOWER(creators) LIKE '%sozialwissenschaftliche studiengesellschaft%'
+                    OR LOWER(creators) LIKE '%sonar%'
+                    OR LOWER(creators) LIKE '%union%'
+                    OR LOWER(creators) LIKE '%Konrad-Adenauer-Stiftung%'
+                    OR LOWER(creators) LIKE '%klinik%'
+                    OR LOWER(creators) LIKE '%usia%'
+                    OR LOWER(creators) LIKE '%divo%'
+                    OR LOWER(creators) LIKE '%marplan%'
+                    OR LOWER(creators) LIKE '%emnid%'
+                    OR LOWER(creators) LIKE '%forsa%'
+                    OR LOWER(creators) LIKE '%zuma%'
+                    OR LOWER(creators) LIKE '%tarki%'
+                    OR LOWER(creators) LIKE '%romanian academy%'
+                    )
+                    ")
+
+# NOTorgNOTuni####
+data_creators_unnest_NOTorgNOTuni <-
+  query("SELECT * FROM data_creators_unnest
+                    WHERE LOWER(creators) NOT LIKE '%univer%'
+                    AND LOWER(creators) NOT LIKE '%fakulteta%'
+                    AND LOWER(creators) NOT LIKE '%college%'
+                    AND LOWER(creators) NOT LIKE '%school%'
+                    AND LOWER(creators) NOT LIKE '%hochschule%'
+                    AND LOWER(creators) NOT LIKE '%institu%'
+                    AND LOWER(creators) NOT LIKE '%research%'
+                    AND LOWER(creators) NOT LIKE '%forschun%'
+                    AND LOWER(creators) NOT LIKE '%agency%'
+                    AND LOWER(creators) NOT LIKE '%analys%'
+                    AND LOWER(creators) NOT LIKE '%europe%'
+                    AND LOWER(creators) NOT LIKE '%statisti%'
+                    AND LOWER(creators) NOT LIKE '%commission%'
+                    AND LOWER(creators) NOT LIKE '%education%'
+                    AND LOWER(creators) NOT LIKE '%ation%'
+                    AND LOWER(creators) NOT LIKE '%service%'
+                    AND LOWER(creators) NOT LIKE '%department%'
+                    AND LOWER(creators) NOT LIKE '%board%'
+                    AND LOWER(creators) NOT LIKE '%association%'
+                    AND LOWER(creators) NOT LIKE '%office%'
+                    AND LOWER(creators) NOT LIKE '%network%'
+                    AND LOWER(creators) NOT LIKE '%centr%'
+                    AND LOWER(creators) NOT LIKE '%center%'
+                    AND LOWER(creators) NOT LIKE '%bureau%'
+                    AND LOWER(creators) NOT LIKE '%archiv%'
+                    AND LOWER(creators) NOT LIKE '%istat%'
+                    AND LOWER(creators) NOT LIKE '%building%'
+                    AND LOWER(creators) NOT LIKE '%economic%'
+                    AND LOWER(creators) NOT LIKE '%histor%'
+                    AND LOWER(creators) NOT LIKE '%council%'
+
+
+                    AND LOWER(creators) NOT LIKE '%trust%'
+                    AND LOWER(creators) NOT LIKE '%ipsos%'
+                    AND LOWER(creators) NOT LIKE '%gfk%'
+                    AND LOWER(creators) NOT LIKE '%garr%'
+                    AND LOWER(creators) NOT LIKE '%cern%'
+                    AND LOWER(creators) NOT LIKE '%luiss%'
+                    AND LOWER(creators) NOT LIKE '%eurostat%'
+                    AND LOWER(creators) NOT LIKE '%oxfam%'
+                    AND LOWER(creators) NOT LIKE '%tns gallup%'
+                    AND LOWER(creators) NOT LIKE '%ministry%'
+                    AND LOWER(creators) NOT LIKE '%library%'
+                    AND LOWER(creators) NOT LIKE '%plattform%'
+                    AND LOWER(creators) NOT LIKE '%laboratorio%'
+                    AND LOWER(creators) NOT LIKE '%census%'
+                    AND LOWER(creators) NOT LIKE '%kommission%'
+                    AND LOWER(creators) NOT LIKE '%europ%'
+                    AND LOWER(creators) NOT LIKE '%eurisko%'
+                    AND LOWER(creators) NOT LIKE '%UKDS%'
+                    AND LOWER(creators) NOT LIKE '%wissen%'
+                    AND LOWER(creators) NOT LIKE '%govern%'
+                    AND LOWER(creators) NOT LIKE '%hospital%'
+                    AND LOWER(creators) NOT LIKE '%social%'
+                    AND LOWER(creators) NOT LIKE '%observa%'
+                    AND LOWER(creators) NOT LIKE '%election%'
+                    AND LOWER(creators) NOT LIKE '%politi%'
+
+                    AND creators NOT LIKE '%MORI%'
+                    AND LOWER(creators) NOT LIKE '%sozialwissenschaftliche studiengesellschaft%'
+                    AND LOWER(creators) NOT LIKE '%sonar%'
+                    AND LOWER(creators) NOT LIKE '%union%'
+                    AND LOWER(creators) NOT LIKE '%Konrad-Adenauer-Stiftung%'
+                    AND LOWER(creators) NOT LIKE '%klinik%'
+                    AND LOWER(creators) NOT LIKE '%usia%'
+                    AND LOWER(creators) NOT LIKE '%divo%'
+                    AND LOWER(creators) NOT LIKE '%marplan%'
+                    AND LOWER(creators) NOT LIKE '%emnid%'
+                    AND LOWER(creators) NOT LIKE '%forsa%'
+                    AND LOWER(creators) NOT LIKE '%zuma%'
+                    AND LOWER(creators) NOT LIKE '%tarki%'
+                    AND LOWER(creators) NOT LIKE '%romanian academy%'
+                    ")
+
+data_creators_unnest_creators_type <-
+  data.frame(rbind
+  (data.frame
+    (
+      query("SELECT sum(n_of_citation) AS 'University' FROM data_creators_unnest_university"),
+      query("SELECT sum(n_of_citation) AS 'Organization' FROM data_creators_unnest_organization"),
+      query("SELECT sum(n_of_citation) AS 'NOT University NOT Organization' FROM data_creators_unnest_NOTorgNOTuni")
+  )))
+
+write.csv(data_creators_unnest_creators_type,
+  file = "results/data_creators_unnest_creators_type.csv"
+)
+```
