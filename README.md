@@ -1,10 +1,20 @@
 # Tracking Reuse Tool
 
-A tool for tracking data reuse from CESSDA Service Providers (archives) in academic publications.
+A tool for tracking data reuse from CESSDA Service Providers (archives) in
+academic publications.
+
+> ⚠️ **IMPORTANT**  
+> This code is a **work in progress** and is provided "as is", without warrantyß
+> of any kind, express or implied. The authors and contributors take no
+> responsibility for any issues, damages, or losses that may arise from its use.
+> Users are advised to test thoroughly and use at their own risk.
 
 ## Overview
 
-This R-based tool analyzes how research data from CESSDA (Consortium of European Social Science Data Archives) Service Providers is reused in academic publications indexed by Scopus. It focuses on tracking citations and analyzing patterns of data reuse.
+This R-based tool analyzes how research data from CESSDA (Consortium of European
+Social Science Data Archives) Service Providers is reused in academic
+publications indexed by Scopus. It focuses on tracking citations and analyzing
+patterns of data reuse.
 
 Version 1.2 is optimized for UK Data Service (March 2025).
 
@@ -47,15 +57,19 @@ The tool generates several CSV files in a `results` folder:
 
 If you use this tool, please cite:
 
-Accordino, F., Luzi, D. and Pecoraro, F. (2025), "Challenges in tracking archive's data reuse in social sciences", Digital Library Perspectives, Vol. ahead-of-print No. ahead-of-print. https://doi.org/10.1108/DLP-07-2024-0112
+Accordino, F., Luzi, D. and Pecoraro, F. (2025), "Challenges in tracking
+archive's data reuse in social sciences", Digital Library Perspectives, Vol.
+ahead-of-print No. ahead-of-print. https://doi.org/10.1108/DLP-07-2024-0112
 
 ## Author
 
 Filippo Accordino  
-Institute for Research on Population and Social Policies - National Research Council, Rome - Italy  
+Institute for Research on Population and Social Policies - National Research
+Council, Rome - Italy  
 DASSI - Data Archive for Social Sciences in Italy  
 f.accordino@irpps.cnr.it  
 https://orcid.org/0000-0002-4245-0654
+https://www.dassi-archive.it
 
 ## License
 
