@@ -16,11 +16,9 @@ Social Science Data Archives) Service Providers is reused in academic
 publications indexed by Scopus. It focuses on tracking citations and analyzing
 patterns of data reuse.
 
-Version 1.2 is optimized for UK Data Service (March 2025).
-
 ## Features
 
-- Extracts DOIs of studies from CESSDA data catalogue 
+- Extracts DOIs of studies from CESSDA data catalogue
 - Tracks citations of these studies in Scopus-indexed publications
 - Analyzes reuse patterns including:
   - Distribution of references across datasets
@@ -33,14 +31,14 @@ Version 1.2 is optimized for UK Data Service (March 2025).
 
 - R with the following packages:
   - httr
-  - tibble 
+  - tibble
   - dplyr
   - tidyverse
   - jsonlite
   - rscopus
   - tidyquery
 
-- Scopus API key (obtain from https://dev.elsevier.com/apikey/manage)
+- Scopus API key (obtain from [here](https://dev.elsevier.com/apikey/manage))
 
 ## Outputs
 
